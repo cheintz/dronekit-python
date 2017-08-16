@@ -94,6 +94,28 @@ class Attitude(object):
         fmt = '{}:pitch={pitch},yaw={yaw},roll={roll}'
         return fmt.format(self.__class__.__name__, **vars(self))
 
+class WindEstimate(object):
+    """
+    Wind Estimate information.
+
+    An object of this type is returned by :py:attr:`Vehicle.wind_estimate`.
+
+    :param x: x velocity, NED, m/s
+    :param y: y velocity, NED, m/s
+    :param z: z velocity, NED, m/s
+    """
+
+    def __init__(self, x, y, z):
+        self.x = X
+        self.y = y
+        self.z = z
+
+    def __str__(self):
+        fmt = '{}:pitch={pitch},yaw={yaw},roll={roll}'
+        return fmt.format(self.__class__.__name__, **vars(self))
+
+
+
 
 class LocationGlobal(object):
     """
@@ -1077,6 +1099,17 @@ class Vehicle(HasObservers):
             self._groundspeed = m.groundspeed
             self.notify_attribute_listeners('groundspeed', self.groundspeed)
 
+	self._wind_x = None
+        self._wind_y = None
+        self._wind_z = None
+
+	@self.on_message('WIND_COV')
+        def listener(self,name,m):
+            self._wind_x = m.wind_x
+            self._wind_y = m.wind_y
+            self._wind_z = m.wind_z
+            self.notify_attribute_listeners('wind_estimation')
+
         self._rngfnd_distance = None
         self._rngfnd_voltage = None
 
@@ -1849,7 +1882,16 @@ class Vehicle(HasObservers):
 
         # send command to vehicle
         self.send_mavlink(msg)
+    @property
+    def wind_estimate(self):
+        """
+        Current groundspeed in metres/second (``double``).
 
+        This attribute is settable. The set value is the default target groundspeed
+        when moving the vehicle using :py:func:`simple_goto` (or other position-based
+        movement commands).
+        """
+        return self.wind_estimate
     @property
     def gimbal(self):
         """
