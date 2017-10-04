@@ -118,6 +118,27 @@ class WindEstimate(object):
         return fmt.format(self.__class__.__name__, **vars(self))
 
 
+class Acceleration(object):
+    """
+    Wind Estimate information.
+
+    An object of this type is returned by :py:attr:`Vehicle.wind_estimate`.
+
+    :param x: x acceleration, body (m/s^2)
+    :param y: y acceleration, body (m/s^2)
+    :param z: z acceleration, body (m/s^2)
+    """
+
+    def __init__(self, ax, ay, az):
+        self.x = ax
+        self.y = ay
+        self.z = az
+
+    def __str__(self):
+        fmt = '{}:x={x},y={y},z={z}'
+        return fmt.format(self.__class__.__name__, **vars(self))
+
+
 
 
 class LocationGlobal(object):
@@ -1112,6 +1133,18 @@ class Vehicle(HasObservers):
             self._wind_speed= m.speed
             self._wind_speed_z = m.speed_z
             self.notify_attribute_listeners('wind_estimate',self.wind_estimate)
+           # errprinter( "received wind msg")
+	self._ax = None
+	self._ay = None
+	self._az = None
+
+        @self.on_message('RAW_IMU')# @self.on_message('RAW_IMU')
+        def listener(self, name, m):
+            self._ax = m.xacc/100.0 
+            self._ay = m.yacc/100.0 
+            self._az = m.zacc/100.0 
+            self.notify_attribute_listeners('acceleration', self.acceleration)
+           # errprinter( "received IMU msg")
 
         self._rngfnd_distance = None
         self._rngfnd_voltage = None
@@ -1885,16 +1918,26 @@ class Vehicle(HasObservers):
 
         # send command to vehicle
         self.send_mavlink(msg)
+
     @property
     def wind_estimate(self):
         """
-        Current groundspeed in metres/second (``double``).
-
-        This attribute is settable. The set value is the default target groundspeed
-        when moving the vehicle using :py:func:`simple_goto` (or other position-based
-        movement commands).
+        Current wind estimate in metres/second (``double``).
         """
         return WindEstimate(self._wind_dir,self._wind_speed,self._wind_speed_z)
+
+    @property
+    def acceleration(self):
+        """
+        Current raw acceleration in m/s2 (``double``).
+        """
+        return Acceleration(self._ax,self._ay,self._az)
+
+
+
+
+
+
     @property
     def gimbal(self):
         """
