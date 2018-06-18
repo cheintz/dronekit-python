@@ -120,9 +120,9 @@ class WindEstimate(object):
 
 class Acceleration(object):
     """
-    Wind Estimate information.
+    Acceleration Estimate information.
 
-    An object of this type is returned by :py:attr:`Vehicle.wind_estimate`.
+    An object of this type is returned by :py:attr:`Vehicle.Acceleration`.
 
     :param x: x acceleration, body (m/s^2)
     :param y: y acceleration, body (m/s^2)
