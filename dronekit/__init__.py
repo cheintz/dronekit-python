@@ -45,6 +45,7 @@ import threading
 from threading import Thread
 import time
 import types
+from datetime import datetime
 
 import monotonic
 from past.builtins import basestring
@@ -201,17 +202,18 @@ class LocationGlobalRelative(object):
     :param alt: Altitude in meters (relative to the home location).
     """
 
-    def __init__(self, lat, lon, alt=None):
+    def __init__(self, lat, lon, alt=None,time = None):
         self.lat = lat
         self.lon = lon
         self.alt = alt
+	self.time = time
 
         # This is for backward compatibility.
         self.local_frame = None
         self.global_frame = None
 
     def __str__(self):
-        return "LocationGlobalRelative:lat=%s,lon=%s,alt=%s" % (self.lat, self.lon, self.alt)
+        return "LocationGlobalRelative:lat=%s,lon=%s,alt=%s,time=%s" % (self.lat, self.lon, self.alt,self.time)
 
 
 class LocationLocal(object):
@@ -927,6 +929,7 @@ class Locations(HasObservers):
         def listener(vehicle, name, m):
             (self._lat, self._lon) = (m.lat / 1.0e7, m.lon / 1.0e7)
             self._relative_alt = m.relative_alt / 1000.0
+            self._glob_position_time = datetime.now()
             self.notify_attribute_listeners('global_relative_frame', self.global_relative_frame)
             vehicle.notify_attribute_listeners('location.global_relative_frame',
                                                vehicle.location.global_relative_frame)
@@ -1019,7 +1022,7 @@ class Locations(HasObservers):
             print "Global Location (relative altitude): %s" % vehicle.location.global_relative_frame
             print "Altitude relative to home_location: %s" % vehicle.location.global_relative_frame.alt
         """
-        return LocationGlobalRelative(self._lat, self._lon, self._relative_alt)
+        return LocationGlobalRelative(self._lat, self._lon, self._relative_alt,self._glob_position_time)
 
 
 class Vehicle(HasObservers):
