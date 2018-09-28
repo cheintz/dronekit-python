@@ -202,18 +202,19 @@ class LocationGlobalRelative(object):
     :param alt: Altitude in meters (relative to the home location).
     """
 
-    def __init__(self, lat, lon, alt=None,time = None):
+    def __init__(self, lat, lon, alt=None,time = None,counter = None):
         self.lat = lat
         self.lon = lon
         self.alt = alt
 	self.time = time
+	self.counter = counter
 
         # This is for backward compatibility.
         self.local_frame = None
         self.global_frame = None
 
     def __str__(self):
-        return "LocationGlobalRelative:lat=%s,lon=%s,alt=%s,time=%s" % (self.lat, self.lon, self.alt,self.time)
+        return "LocationGlobalRelative:lat=%s,lon=%s,alt=%s,time=%s,counter=%s" % (self.lat, self.lon, self.alt,self.time)
 
 
 class LocationLocal(object):
@@ -930,6 +931,7 @@ class Locations(HasObservers):
             (self._lat, self._lon) = (m.lat / 1.0e7, m.lon / 1.0e7)
             self._relative_alt = m.relative_alt / 1000.0
             self._glob_position_time = datetime.now()
+	    self._glob_position_counter = self._glob_position_counter+ 1
             self.notify_attribute_listeners('global_relative_frame', self.global_relative_frame)
             vehicle.notify_attribute_listeners('location.global_relative_frame',
                                                vehicle.location.global_relative_frame)
@@ -1022,7 +1024,7 @@ class Locations(HasObservers):
             print "Global Location (relative altitude): %s" % vehicle.location.global_relative_frame
             print "Altitude relative to home_location: %s" % vehicle.location.global_relative_frame.alt
         """
-        return LocationGlobalRelative(self._lat, self._lon, self._relative_alt,self._glob_position_time)
+        return LocationGlobalRelative(self._lat, self._lon, self._relative_alt,self._glob_position_time,self._glob_position_counter)
 
 
 class Vehicle(HasObservers):
