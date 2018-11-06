@@ -214,7 +214,7 @@ class LocationGlobalRelative(object):
         self.global_frame = None
 
     def __str__(self):
-        return "LocationGlobalRelative:lat=%s,lon=%s,alt=%s,time=%s,counter=%s" % (self.lat, self.lon, self.alt,self.time)
+        return "LocationGlobalRelative:lat=%s,lon=%s,alt=%s,time=%s,counter=%s" % (self.lat, self.lon, self.alt,self.time,self.counter)
 
 
 class LocationLocal(object):
@@ -925,6 +925,7 @@ class Locations(HasObservers):
         self._lon = None
         self._alt = None
         self._relative_alt = None
+	self._glob_position_counter =0
 
         @vehicle.on_message('GLOBAL_POSITION_INT')
         def listener(vehicle, name, m):
