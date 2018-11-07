@@ -5,15 +5,12 @@ import errno
 import sys
 import os
 import platform
-import re
 import copy
-import dronekit
 from dronekit import APIException
 from dronekit.util import errprinter
-from pymavlink import mavutil, mavwp
+from pymavlink import mavutil
 from queue import Queue, Empty
 from threading import Thread
-import types
 
 if platform.system() == 'Windows':
     from errno import WSAECONNRESET as ECONNABORTED
@@ -58,23 +55,23 @@ class mavudpin_multi(mavutil.mavfile):
                 self.port.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
                 self.broadcast = True
         mavutil.set_close_on_exec(self.port.fileno())
-        self.port.setblocking(0)
+        self.port.setblocking(False)
         mavutil.mavfile.__init__(self, self.port.fileno(), device, source_system=source_system, input=input, use_native=use_native)
 
     def close(self):
         self.port.close()
 
-    def recv(self,n=None):
+    def recv(self, n=None):
         try:
             try:
                 data, new_addr = self.port.recvfrom(65535)
             except socket.error as e:
-                if e.errno in [ errno.EAGAIN, errno.EWOULDBLOCK, errno.ECONNREFUSED ]:
+                if e.errno in [errno.EAGAIN, errno.EWOULDBLOCK, errno.ECONNREFUSED]:
                     return ""
             if self.udp_server:
                 self.addresses.add(new_addr)
             elif self.broadcast:
-                self.addresses = set([new_addr])
+                self.addresses = {new_addr}
             return data
         except Exception as e:
             print(e)
@@ -203,12 +200,12 @@ class MAVConnection(object):
             # Huge try catch in case we see http://bugs.python.org/issue1856
             try:
                 while self._alive:
-                    # Downtime
-                    time.sleep(0.05)
-
                     # Loop listeners.
                     for fn in self.loop_listeners:
                         fn(self)
+
+                    # Sleep
+                    self.master.select(0.05)
 
                     while self._accept_input:
                         try:
@@ -218,11 +215,15 @@ class MAVConnection(object):
                             if error.errno == ECONNABORTED:
                                 raise APIException('Connection aborting during send')
                             raise
-                        except Exception as e:
-                            # TODO this should be more rigorous. How to avoid
+                        except mavutil.mavlink.MAVError as e:
+                            # Avoid
                             #   invalid MAVLink prefix '73'
                             #   invalid MAVLink prefix '13'
                             # errprinter('mav recv error:', e)
+                            msg = None
+                        except Exception as e:
+                            # Log any other unexpected exception
+                            errprinter('>>> Exception while receiving message: ', e)
                             msg = None
                         if not msg:
                             break
