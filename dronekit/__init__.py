@@ -25,27 +25,28 @@ Velocity-based movement and control over other vehicle features can be achieved 
 
 It is also possible to work with vehicle "missions" using the :py:attr:`Vehicle.commands` attribute, and run them in AUTO mode.
 
+All the logging is handled through the builtin Python `logging` module.
+
 A number of other useful classes and methods are listed below.
 
 ----
 """
 
-from __future__ import print_function
 import collections
 import copy
+import logging
 import math
 import struct
-import re
-import sys
 import time
 from datetime import datetime
 
 import monotonic
 from past.builtins import basestring
-from dronekit.util import errprinter
 
 from pymavlink import mavutil, mavwp
 from pymavlink.dialects.v10 import ardupilotmega
+
+from dronekit.util import ErrprinterHandler
 
 
 class APIException(Exception):
@@ -580,6 +581,9 @@ class SystemStatus(object):
 
 class HasObservers(object):
     def __init__(self):
+        logging.basicConfig()
+        self._logger = logging.getLogger(__name__)
+
         # A mapping from attr_name to a list of observers
         self._attribute_listeners = {}
         self._attribute_cache = {}
@@ -688,18 +692,14 @@ class HasObservers(object):
         for fn in self._attribute_listeners.get(attr_name, []):
             try:
                 fn(self, attr_name, value)
-            except Exception as e:
-                errprinter('>>> Exception in attribute handler for %s' %
-                           attr_name)
-                errprinter('>>> ' + str(e))
+            except Exception:
+                self._logger.exception('Exception in attribute handler for %s' % attr_name, exc_info=True)
 
         for fn in self._attribute_listeners.get('*', []):
             try:
                 fn(self, attr_name, value)
-            except Exception as e:
-                errprinter('>>> Exception in attribute handler for %s' %
-                           attr_name)
-                errprinter('>>> ' + str(e))
+            except Exception:
+                self._logger.exception('Exception in attribute handler for %s' % attr_name, exc_info=True)
 
     def on_attribute(self, name):
         """
@@ -1039,6 +1039,15 @@ class Vehicle(HasObservers):
     It is also possible to work with vehicle "missions" using the :py:attr:`commands` attribute,
     and run them in AUTO mode.
 
+    STATUSTEXT log messages from the autopilot are handled through a separate logger.
+    It is possible to configure the log level, the formatting, etc. by accessing the logger, e.g.:
+
+    .. code-block:: python
+
+        import logging
+        autopilot_logger = logging.getLogger('autopilot')
+        autopilot_logger.setLevel(logging.DEBUG)
+
     The guide contains more detailed information on the different ways you can use
     the ``Vehicle`` class:
 
@@ -1059,6 +1068,20 @@ class Vehicle(HasObservers):
 
     def __init__(self, handler):
         super(Vehicle, self).__init__()
+
+        self._logger = logging.getLogger(__name__)  # Logger for DroneKit
+        self._autopilot_logger = logging.getLogger('autopilot')  # Logger for the autopilot messages
+        # MAVLink-to-logging-module log severity mappings
+        self._mavlink_statustext_severity = {
+            0: logging.CRITICAL,
+            1: logging.CRITICAL,
+            2: logging.CRITICAL,
+            3: logging.ERROR,
+            4: logging.WARNING,
+            5: logging.INFO,
+            6: logging.INFO,
+            7: logging.DEBUG
+        }
 
         self._handler = handler
         self._master = handler.master
@@ -1085,6 +1108,14 @@ class Vehicle(HasObservers):
         self._vx = None
         self._vy = None
         self._vz = None
+
+        @self.on_message('STATUSTEXT')
+        def statustext_listener(self, name, m):
+            # Log the STATUSTEXT on the autopilot logger, with the correct severity
+            self._autopilot_logger.log(
+                msg=m.text.strip(),
+                level=self._mavlink_statustext_severity[m.severity]
+            )
 
         @self.on_message('GLOBAL_POSITION_INT')
         def listener(self, name, m):
@@ -1355,7 +1386,7 @@ class Vehicle(HasObservers):
                 c = 0
                 for i, v in enumerate(self._params_set):
                     if v is None:
-                        self._master.mav.param_request_read_send(0, 0, '', i)
+                        self._master.mav.param_request_read_send(0, 0, b'', i)
                         c += 1
                         if c > 50:
                             break
@@ -1415,8 +1446,7 @@ class Vehicle(HasObservers):
                                        self._heartbeat_error)
                 elif monotonic.monotonic() - self._heartbeat_lastreceived > self._heartbeat_warning:
                     if self._heartbeat_timeout is False:
-                        errprinter('>>> Link timeout, no heartbeat in last %s seconds' %
-                                   self._heartbeat_warning)
+                        self._logger.warning('Link timeout, no heartbeat in last %s seconds' % self._heartbeat_warning)
                         self._heartbeat_timeout = True
 
         @self.on_message(['HEARTBEAT'])
@@ -1427,7 +1457,7 @@ class Vehicle(HasObservers):
             self._heartbeat_system = msg.get_srcSystem()
             self._heartbeat_lastreceived = monotonic.monotonic()
             if self._heartbeat_timeout:
-                errprinter('>>> ...link restored.')
+                self._logger.info('...link restored.')
             self._heartbeat_timeout = False
 
         self._last_heartbeat = None
@@ -1574,18 +1604,14 @@ class Vehicle(HasObservers):
         for fn in self._message_listeners.get(name, []):
             try:
                 fn(self, name, msg)
-            except Exception as e:
-                errprinter('>>> Exception in message handler for %s' %
-                           msg.get_type())
-                errprinter('>>> ' + str(e))
+            except Exception:
+                self._logger.exception('Exception in message handler for %s' % msg.get_type(), exc_info=True)
 
         for fn in self._message_listeners.get('*', []):
             try:
                 fn(self, name, msg)
-            except Exception as e:
-                errprinter('>>> Exception in message handler for %s' %
-                           msg.get_type())
-                errprinter('>>> ' + str(e))
+            except Exception:
+                self._logger.exception('Exception in message handler for %s' % msg.get_type(), exc_info=True)
 
     def close(self):
         return self._handler.close()
@@ -1825,7 +1851,7 @@ class Vehicle(HasObservers):
         # check that mode is not INITIALSING
         # check that we have a GPS fix
         # check that EKF pre-arm is complete
-        return self.mode != 'INITIALISING' and self.gps_0.fix_type > 1 and self._ekf_predposhorizabs
+        return self.mode != 'INITIALISING' and (self.gps_0.fix_type is not None and self.gps_0.fix_type > 1) and self._ekf_predposhorizabs
 
     @property
     def system_status(self):
@@ -2466,6 +2492,110 @@ class Vehicle(HasObservers):
 
         self.send_mavlink(reboot_msg)
 
+    def send_calibrate_gyro(self):
+        """Request gyroscope calibration."""
+
+        calibration_command = self.message_factory.command_long_encode(
+            self._handler.target_system, 0,  # target_system, target_component
+            mavutil.mavlink.MAV_CMD_PREFLIGHT_CALIBRATION,  # command
+            0,  # confirmation
+            1,  # param 1, 1: gyro calibration, 3: gyro temperature calibration
+            0,  # param 2, 1: magnetometer calibration
+            0,  # param 3, 1: ground pressure calibration
+            0,  # param 4, 1: radio RC calibration, 2: RC trim calibration
+            0,  # param 5, 1: accelerometer calibration, 2: board level calibration, 3: accelerometer temperature calibration, 4: simple accelerometer calibration
+            0,  # param 6, 2: airspeed calibration
+            0,  # param 7, 1: ESC calibration, 3: barometer temperature calibration
+        )
+        self.send_mavlink(calibration_command)
+
+    def send_calibrate_magnetometer(self):
+        """Request magnetometer calibration."""
+
+        # ArduPilot requires the MAV_CMD_DO_START_MAG_CAL command, only present in the ardupilotmega.xml definition
+        if self._autopilot_type == mavutil.mavlink.MAV_AUTOPILOT_ARDUPILOTMEGA:
+            calibration_command = self.message_factory.command_long_encode(
+                self._handler.target_system, 0,  # target_system, target_component
+                mavutil.mavlink.MAV_CMD_DO_START_MAG_CAL,  # command
+                0,  # confirmation
+                0,  # param 1, uint8_t bitmask of magnetometers (0 means all).
+                1,  # param 2, Automatically retry on failure (0=no retry, 1=retry).
+                1,  # param 3, Save without user input (0=require input, 1=autosave).
+                0,  # param 4, Delay (seconds).
+                0,  # param 5, Autoreboot (0=user reboot, 1=autoreboot).
+                0,  # param 6, Empty.
+                0,  # param 7, Empty.
+            )
+        else:
+            calibration_command = self.message_factory.command_long_encode(
+                self._handler.target_system, 0,  # target_system, target_component
+                mavutil.mavlink.MAV_CMD_PREFLIGHT_CALIBRATION,  # command
+                0,  # confirmation
+                0,  # param 1, 1: gyro calibration, 3: gyro temperature calibration
+                1,  # param 2, 1: magnetometer calibration
+                0,  # param 3, 1: ground pressure calibration
+                0,  # param 4, 1: radio RC calibration, 2: RC trim calibration
+                0,  # param 5, 1: accelerometer calibration, 2: board level calibration, 3: accelerometer temperature calibration, 4: simple accelerometer calibration
+                0,  # param 6, 2: airspeed calibration
+                0,  # param 7, 1: ESC calibration, 3: barometer temperature calibration
+            )
+
+        self.send_mavlink(calibration_command)
+
+    def send_calibrate_accelerometer(self, simple=False):
+        """Request accelerometer calibration.
+
+        :param simple: if True, perform simple accelerometer calibration
+        """
+
+        calibration_command = self.message_factory.command_long_encode(
+            self._handler.target_system, 0,  # target_system, target_component
+            mavutil.mavlink.MAV_CMD_PREFLIGHT_CALIBRATION,  # command
+            0,  # confirmation
+            0,  # param 1, 1: gyro calibration, 3: gyro temperature calibration
+            0,  # param 2, 1: magnetometer calibration
+            0,  # param 3, 1: ground pressure calibration
+            0,  # param 4, 1: radio RC calibration, 2: RC trim calibration
+            4 if simple else 1,  # param 5, 1: accelerometer calibration, 2: board level calibration, 3: accelerometer temperature calibration, 4: simple accelerometer calibration
+            0,  # param 6, 2: airspeed calibration
+            0,  # param 7, 1: ESC calibration, 3: barometer temperature calibration
+        )
+        self.send_mavlink(calibration_command)
+
+    def send_calibrate_vehicle_level(self):
+        """Request vehicle level (accelerometer trim) calibration."""
+
+        calibration_command = self.message_factory.command_long_encode(
+            self._handler.target_system, 0,  # target_system, target_component
+            mavutil.mavlink.MAV_CMD_PREFLIGHT_CALIBRATION,  # command
+            0,  # confirmation
+            0,  # param 1, 1: gyro calibration, 3: gyro temperature calibration
+            0,  # param 2, 1: magnetometer calibration
+            0,  # param 3, 1: ground pressure calibration
+            0,  # param 4, 1: radio RC calibration, 2: RC trim calibration
+            2,  # param 5, 1: accelerometer calibration, 2: board level calibration, 3: accelerometer temperature calibration, 4: simple accelerometer calibration
+            0,  # param 6, 2: airspeed calibration
+            0,  # param 7, 1: ESC calibration, 3: barometer temperature calibration
+        )
+        self.send_mavlink(calibration_command)
+
+    def send_calibrate_barometer(self):
+        """Request barometer calibration."""
+
+        calibration_command = self.message_factory.command_long_encode(
+            self._handler.target_system, 0,  # target_system, target_component
+            mavutil.mavlink.MAV_CMD_PREFLIGHT_CALIBRATION,  # command
+            0,  # confirmation
+            0,  # param 1, 1: gyro calibration, 3: gyro temperature calibration
+            0,  # param 2, 1: magnetometer calibration
+            1,  # param 3, 1: ground pressure calibration
+            0,  # param 4, 1: radio RC calibration, 2: RC trim calibration
+            0,  # param 5, 1: accelerometer calibration, 2: board level calibration, 3: accelerometer temperature calibration, 4: simple accelerometer calibration
+            0,  # param 6, 2: airspeed calibration
+            0,  # param 7, 1: ESC calibration, 3: barometer temperature calibration
+        )
+        self.send_mavlink(calibration_command)
+
 
 class Gimbal(object):
     """
@@ -2504,6 +2634,13 @@ class Gimbal(object):
             self._pitch = m.pointing_a / 100.0
             self._roll = m.pointing_b / 100.0
             self._yaw = m.pointing_c / 100.0
+            vehicle.notify_attribute_listeners('gimbal', vehicle.gimbal)
+
+        @vehicle.on_message('MOUNT_ORIENTATION')
+        def listener(vehicle, name, m):
+            self._pitch = m.pitch 
+            self._roll = m.roll
+            self._yaw = m.yaw
             vehicle.notify_attribute_listeners('gimbal', vehicle.gimbal)
 
     @property
@@ -2666,6 +2803,7 @@ class Parameters(collections.MutableMapping, HasObservers):
 
     def __init__(self, vehicle):
         super(Parameters, self).__init__()
+        self._logger = logging.getLogger(__name__)
         self._vehicle = vehicle
 
     def __getitem__(self, name):
@@ -2718,7 +2856,7 @@ class Parameters(collections.MutableMapping, HasObservers):
                 time.sleep(0.1)
 
         if retries > 0:
-            errprinter("timeout setting parameter %s to %f" % (name, value))
+            self._logger.error("timeout setting parameter %s to %f" % (name, value))
         return False
 
     def wait_ready(self, **kwargs):
@@ -3030,8 +3168,7 @@ class CommandSequence(object):
 
 
 def default_still_waiting_callback(atts):
-    print("Still waiting for data from vehicle: %s" % ','.join(atts),
-          file=sys.stderr)
+    logging.getLogger(__name__).debug("Still waiting for data from vehicle: %s" % ','.join(atts))
 
 
 def connect(ip,
@@ -3040,7 +3177,7 @@ def connect(ip,
             timeout=30,
             still_waiting_callback=default_still_waiting_callback,
             still_waiting_interval=1,
-            status_printer=errprinter,
+            status_printer=None,
             vehicle_class=None,
             rate=4,
             baud=115200,
@@ -3072,9 +3209,9 @@ def connect(ip,
 
         For more information see :py:func:`Vehicle.wait_ready <Vehicle.wait_ready>`.
 
-    :param status_printer: Method of signature ``def status_printer(txt)`` that prints
+    :param status_printer: (deprecated) method of signature ``def status_printer(txt)`` that prints
         STATUS_TEXT messages from the Vehicle and other diagnostic information.
-        By default the status information is printed to the command prompt in which the script is running.
+        By default the status information is handled by the ``autopilot`` logger.
     :param Vehicle vehicle_class: The class that will be instantiated by the ``connect()`` method.
         This can be any sub-class of ``Vehicle`` (and defaults to ``Vehicle``).
     :param int rate: Data stream refresh rate. The default is 4Hz (4 updates per second).
@@ -3094,6 +3231,9 @@ def connect(ip,
             It is *good practice* to assign a unique id for every system on the MAVLink network.
             It is possible to configure the autopilot to only respond to guided-mode commands from a specified GCS ID.
 
+            The ``status_printer`` argument is deprecated. To redirect the logging from the library and from the
+            autopilot, configure the ``dronekit`` and ``autopilot`` loggers using the Python ``logging`` module.
+
 
     :returns: A connected vehicle of the type defined in ``vehicle_class`` (a superclass of :py:class:`Vehicle`).
     """
@@ -3107,10 +3247,7 @@ def connect(ip,
     vehicle = vehicle_class(handler)
 
     if status_printer:
-
-        @vehicle.on_message('STATUSTEXT')
-        def listener(self, name, m):
-            status_printer(re.sub(r'(^|\n)', '>>> ', m.text.rstrip()))
+        vehicle._autopilot_logger.addHandler(ErrprinterHandler(status_printer))
 
     if _initialize:
         vehicle.initialize(rate=rate, heartbeat_timeout=heartbeat_timeout)
