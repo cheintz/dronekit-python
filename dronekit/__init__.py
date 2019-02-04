@@ -38,7 +38,7 @@ import logging
 import math
 import struct
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import monotonic
 from past.builtins import basestring
@@ -112,6 +112,25 @@ class WindEstimate(object):
     def __str__(self):
         fmt = '{}:direction={dir},speed={speed},speed_z={speed_z}'
         return fmt.format(self.__class__.__name__, **vars(self))
+
+class System_Time(object):
+    """
+     System Time information.
+
+    An object of this type is returned by :py:attr:`Vehicle.system_time`.
+
+    :param fc: flight controller time, UTC
+    :param cc: companion computer time, UTC
+    """
+
+    def __init__(self, fcTime, ccTime):
+        self.fc = fcTime
+        self.cc = ccTime
+
+    def __str__(self):
+        fmt = '{}:Flight Control={fc},Companion Computer={cc}'
+        return fmt.format(self.__class__.__name__, **vars(self))
+
 
 
 class Acceleration(object):
@@ -1162,7 +1181,20 @@ class Vehicle(HasObservers):
             self._wind_speed= m.speed
             self._wind_speed_z = m.speed_z
             self.notify_attribute_listeners('wind_estimate',self.wind_estimate)
-           # errprinter( "received wind msg")
+	
+	self._fcTime = None
+        self._ccTime = None
+
+
+	@self.on_message('SYSTEM_TIME')
+        def listener(self,name,m):
+		epoch_offset = 1420070400
+		self._fcTime = datetime.utcfromtimestamp(m.time_unix_usec/1000000.0 )
+		self._ccTime = datetime.utcfromtimestamp(m._timestamp) 
+#		print "sysTime: " + str(self._fcTime)
+#		print "cpTime: " + str(self._ccTime )
+#		print "Delay: " + str((self._fcTime - self._ccTime).total_seconds())
+             
 	self._ax = None
 	self._ay = None
 	self._az = None
@@ -1946,6 +1978,13 @@ class Vehicle(HasObservers):
         Current wind estimate in metres/second (``double``).
         """
         return WindEstimate(self._wind_dir,self._wind_speed,self._wind_speed_z)
+
+    @property
+    def system_time(self):
+        """
+        Current system time and time companion computer received that time update
+        """
+        return System_Time(self._fcTime,self._ccTime)
 
     @property
     def acceleration(self):
