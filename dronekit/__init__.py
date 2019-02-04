@@ -131,6 +131,32 @@ class System_Time(object):
         fmt = '{}:Flight Control={fc},Companion Computer={cc}'
         return fmt.format(self.__class__.__name__, **vars(self))
 
+class Nav_Controller_Output(object):
+    """
+     Navigation Tracking Attitude information.
+
+    An object of this type is returned by :py:attr:`Vehicle.system_time`.
+
+    :param fc: flight controller time, UTC
+    :param cc: companion computer time, UTC
+    """
+
+    def __init__(self, nr,np,nb,tb,wpd,ae,ase,xte):
+        self.nav_roll = nr
+	self.nav_pitch = np
+	self.nav_bearing = nb
+	self.target_bearing = tb
+	self.wp_dist = wpd
+	self.alt_error = ae
+	self.aspd_error = ase
+	self.xtrack_error = xte	
+
+    def __str__(self):
+        fmt = ('{}:nav_roll={nav_roll},nav_pitch={nav_pitch},nav_bearing={nav_bearing}'+
+	'target_bearing={target_bearing},wp_dist={wp_dist},alt_error={alt_error}'+
+	'aspd_error={aspd_error},xtrack_error={xtrack_error}')
+        return fmt.format(self.__class__.__name__, **vars(self))
+
 
 
 class Acceleration(object):
@@ -1185,7 +1211,6 @@ class Vehicle(HasObservers):
 	self._fcTime = None
         self._ccTime = None
 
-
 	@self.on_message('SYSTEM_TIME')
         def listener(self,name,m):
 		epoch_offset = 1420070400
@@ -1194,6 +1219,29 @@ class Vehicle(HasObservers):
 #		print "sysTime: " + str(self._fcTime)
 #		print "cpTime: " + str(self._ccTime )
 #		print "Delay: " + str((self._fcTime - self._ccTime).total_seconds())
+
+
+	self._nav_roll = None
+	self._nav_pitch = None
+	self._nav_bearing = None
+	self._target_bearing = None
+	self._wp_dist = None
+	self._alt_error = None
+	self._aspd_error = None
+	self._xtrack_error = None
+
+
+	@self.on_message('NAV_CONTROLLER_OUTPUT')
+        def listener(self,name,m):
+		self._nav_roll = m.nav_roll
+		self._nav_pitch = m.nav_pitch
+		self._nav_bearing = m.nav_bearing
+		self._target_bearing = m.target_bearing
+		self._wp_dist = m.wp_dist
+		self._alt_error = m.alt_error
+		self._aspd_error = m.aspd_error
+		self._xtrack_error = m.xtrack_error
+
              
 	self._ax = None
 	self._ay = None
@@ -1985,6 +2033,14 @@ class Vehicle(HasObservers):
         Current system time and time companion computer received that time update
         """
         return System_Time(self._fcTime,self._ccTime)
+
+    @property
+    def nav_controller_output(self):
+        """
+        Current flight controller nav controller output
+        """
+        return Nav_Controller_Output(self._nav_roll,self._nav_pitch, self._nav_bearing, self._target_bearing,
+	self._wp_dist,self._alt_error,self._aspd_error,	self._xtrack_error,)
 
     @property
     def acceleration(self):
