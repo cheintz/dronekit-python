@@ -81,13 +81,15 @@ class Attitude(object):
     :param roll: Roll in radians
     """
 
-    def __init__(self, pitch, yaw, roll,pitchspeed,yawspeed,rollspeed):
+    def __init__(self, pitch, yaw, roll,pitchspeed,yawspeed,rollspeed, time=None, counter=0):
         self.pitch = pitch
         self.yaw = yaw
         self.roll = roll
         self.pitchspeed = pitchspeed
         self.yawspeed = yawspeed
         self.rollspeed = rollspeed
+	self.time = time
+	self.counter = counter
 
     def __str__(self):
         fmt = '{}:pitch={pitch},yaw={yaw},roll={roll}'
@@ -1173,6 +1175,8 @@ class Vehicle(HasObservers):
         self._pitchspeed = None
         self._yawspeed = None
         self._rollspeed = None
+	self._glob_attitude_counter = 0
+	
 
         @self.on_message('ATTITUDE')
         def listener(self, name, m):
@@ -1182,7 +1186,10 @@ class Vehicle(HasObservers):
             self._pitchspeed = m.pitchspeed
             self._yawspeed = m.yawspeed
             self._rollspeed = m.rollspeed
+            self._glob_attitude_counter +=1 
+            self._glob_attitude_time = datetime.now()
             self.notify_attribute_listeners('attitude', self.attitude)
+            
 
         self._heading = None
         self._airspeed = None
@@ -1883,7 +1890,7 @@ class Vehicle(HasObservers):
         """
         Current vehicle attitude - pitch, yaw, roll (:py:class:`Attitude`).
         """
-        return Attitude(self._pitch, self._yaw, self._roll,self._pitchspeed,self._yawspeed,self._rollspeed)
+        return Attitude(self._pitch, self._yaw, self._roll,self._pitchspeed,self._yawspeed,self._rollspeed,self._glob_attitude_time,self._glob_attitude_counter)
 
     @property
     def gps_0(self):
